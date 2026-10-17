@@ -82,7 +82,7 @@ async function scan(env: Env, chatId: number, requestedSymbol?: string): Promise
       await telegram(env,"sendMessage",{chat_id:chatId,text:"SCAN STATUS: NO TRADE\nThe Quotex catalogue returned no currently open instruments."});
       return;
     }
-    const callsNeeded = symbols.length * 3 + 2;
+    const callsNeeded = symbols.length * 3 + 4;
     const remaining = usage.requests?.remaining;
     if (typeof remaining === "number" && remaining < callsNeeded) {
       await telegram(env,"sendMessage",{chat_id:chatId,text:
@@ -253,6 +253,17 @@ export default {
         await scan(env,cb.message.chat.id);
       }
       return json({ok:true});
-    } catch { return json({error:"Upstream request failed"},502); }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "unknown error";
+      let explanation = "Command failed while contacting a data service. Please try again later.";
+      if (message.includes("HTTP 402")) explanation = "OTCharts is returning HTTP 402: this account's free API tier is paused/blocked. /markets and scans need an active supported plan; no signal was generated.";
+      else if (message.includes("HTTP 401")) explanation = "OTCharts rejected the API key (HTTP 401). The key may be invalid or inactive.";
+      else if (message.includes("HTTP 403")) explanation = "OTCharts denied this request under the current plan (HTTP 403).";
+      else if (message.includes("HTTP 429")) explanation = "OTCharts request quota is exhausted (HTTP 429).";
+      if (update.message?.chat?.id) {
+        try { await telegram(env, "sendMessage", {chat_id:update.message.chat.id, text:"AstraTrade AI — request unavailable\\n"+explanation+"\\nNo fake market data or signal was produced."}); } catch { /* Telegram delivery failed; acknowledge webhook to avoid retry storms */ }
+      }
+      return json({ok:true, commandError:explanation});
+    }
   }
 };
