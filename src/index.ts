@@ -132,11 +132,11 @@ async function scan(env: Env, chatId: number, requestedSymbol?: string): Promise
     const entryPrice = entryCandle?.candles.at(-1)?.close;
     const signalId = crypto.randomUUID();
     if (!env.DB) {
-      await telegram(env,"sendMessage",{chat_id:chatId,text:"SCAN STATUS: NO TRADE\\nSignal storage is not configured (DB binding missing); refusing to issue an unlogged signal."});
+      await telegram(env,"sendMessage",{chat_id:chatId,text:"SCAN STATUS: NO TRADE\nSignal storage is not configured (DB binding missing); refusing to issue an unlogged signal."});
       return;
     }
     if (!entryCandle || typeof entryPrice !== "number" || !Number.isFinite(entryPrice)) {
-      await telegram(env,"sendMessage",{chat_id:chatId,text:"SCAN STATUS: NO TRADE\\nCould not capture a valid entry price for outcome tracking."});
+      await telegram(env,"sendMessage",{chat_id:chatId,text:"SCAN STATUS: NO TRADE\nCould not capture a valid entry price for outcome tracking."});
       return;
     }
     await recordSignal(env.DB, {id:signalId,createdAt:new Date().toISOString(),symbol:best.symbol,direction:best.direction,timeframeSeconds:60,entryPrice,entryCandleTime:entryCandle.candles.at(-1)!.timestamp,strategyVersion:"ema-momentum-v1"});
@@ -218,7 +218,7 @@ export default {
       } else if (chatId && text.toLowerCase().startsWith("/analysis")) {
         const rawSymbol = text.split(/\\s+/)[1]?.trim().toUpperCase();
         if (!rawSymbol) {
-          await telegram(env,"sendMessage",{chat_id:chatId,text:"Usage: /analysis EURUSD\\nResearch-only technical analysis using Twelve Data standard FX candles. This is not a Quotex OTC signal."});
+          await telegram(env,"sendMessage",{chat_id:chatId,text:"Usage: /analysis EURUSD\nResearch-only technical analysis using Twelve Data standard FX candles. This is not a Quotex OTC signal."});
         } else if (!env.TWELVE_DATA_API_KEY) {
           await telegram(env,"sendMessage",{chat_id:chatId,text:"Analysis unavailable: TWELVE_DATA_API_KEY is not configured on the Worker."});
         } else {
@@ -254,7 +254,7 @@ export default {
             "Multi-timeframe alignment: "+(aligned?"ALIGNED":"NOT ALIGNED / INCOMPLETE"),
             "Decision: "+(aligned?"RESEARCH BIAS ONLY — "+directions[0]:"NO TRADE"),
             "Important: Twelve Data standard FX prices are not Quotex OTC prices. This is not a broker-matched entry signal, does not guarantee outcomes, and is not calibrated for win probability."
-          ].join("\\n").slice(0,3900)});
+          ].join("\n").slice(0,3900)});
         }
       } else if (chatId && text.toLowerCase() === "/markets") {
         if (!env.OTCHARTS_API_KEY) {
@@ -304,7 +304,7 @@ export default {
       else if (message.includes("HTTP 403")) explanation = "OTCharts denied this request under the current plan (HTTP 403).";
       else if (message.includes("HTTP 429")) explanation = "OTCharts request quota is exhausted (HTTP 429).";
       if (update.message?.chat?.id) {
-        try { await telegram(env, "sendMessage", {chat_id:update.message.chat.id, text:"AstraTrade AI — request unavailable\\n"+explanation+"\\nNo fake market data or signal was produced."}); } catch { /* Telegram delivery failed; acknowledge webhook to avoid retry storms */ }
+        try { await telegram(env, "sendMessage", {chat_id:update.message.chat.id, text:"AstraTrade AI — request unavailable\n"+explanation+"\nNo fake market data or signal was produced."}); } catch { /* Telegram delivery failed; acknowledge webhook to avoid retry storms */ }
       }
       return json({ok:true, commandError:explanation});
     }
