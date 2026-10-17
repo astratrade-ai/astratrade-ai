@@ -45,7 +45,9 @@ export async function fetchTwelveDataCandles(
     throw new Error("Twelve Data response rejected: " + String(body.message ?? body.code ?? "missing values"));
   }
   const candles: Candle[] = body.values.map((v) => {
-    const timestamp = Date.parse(v.datetime ?? "");
+    const rawDatetime = v.datetime ?? "";
+    const normalizedDatetime = /(?:Z|[+-]\\d{2}:?\\d{2})$/i.test(rawDatetime) ? rawDatetime : rawDatetime.replace(" ", "T") + "Z";
+    const timestamp = Date.parse(normalizedDatetime);
     return {
       timestamp,
       open: Number(v.open),
