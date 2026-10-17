@@ -60,7 +60,7 @@ function assess(candles: Candle[], tf: TF, now: number, gaps?: {runs?:number;mis
   }
   return {ok:true,direction,score,issue:"OK",latest:quality.latestTimestamp,count:candles.length};
 }
-async function scan(env: Env, chatId: number): Promise<void> {
+async function scan(env: Env, chatId: number, requestedSymbol?: string): Promise<void> {
   const key = env.OTCHARTS_API_KEY;
   if (!key) {
     await telegram(env,"sendMessage",{chat_id:chatId,text:"SCAN STATUS: NO TRADE\nOTCHARTS_API_KEY is not available to this deployed Worker. Check the Worker Secret and deploy the latest code."});
@@ -75,7 +75,9 @@ async function scan(env: Env, chatId: number): Promise<void> {
       return;
     }
     const catalogue = await fetchOTCSymbols(key,"quotex");
-    const symbols = chooseSymbols(catalogue);
+    const symbols = requestedSymbol
+      ? catalogue.filter(s => s.open !== false && (s.symbol.toLowerCase() === requestedSymbol.toLowerCase() || s.symbol.toLowerCase() === requestedSymbol.toLowerCase() + "_otc")).slice(0, 1)
+      : chooseSymbols(catalogue);
     if (!symbols.length) {
       await telegram(env,"sendMessage",{chat_id:chatId,text:"SCAN STATUS: NO TRADE\nThe Quotex catalogue returned no currently open instruments."});
       return;
@@ -198,7 +200,53 @@ export default {
     let update:TelegramUpdate;
     try { update = await request.json() as TelegramUpdate; } catch { return json({error:"Invalid JSON"},400); }
     try {
-      if (update.message?.chat?.id && update.message.text?.trim().toLowerCase() === "/start") await start(env,update.message.chat.id);
+      const message = update.message;
+      const chatId = message?.chat?.id;
+      const text = message?.text?.trim() ?? "";
+      if (chatId && text.toLowerCase() === "/start") await start(env,chatId);
+      else if (chatId && (text.toLowerCase() === "/help" || text.toLowerCase() === "/commands")) {
+        await telegram(env,"sendMessage",{chat_id:chatId,text:[
+          "AstraTrade AI commands",
+          "/start — show scan button",
+          "/markets — list open instruments available from your OTCharts plan",
+          "/signal SYMBOL — scan one exact available instrument, e.g. /signal EURUSD_otc",
+          "/stats — show stored outcome statistics",
+          "Signals are experimental, uncalibrated, and do not guarantee profit. Provider plan limits may block data."
+        ].join("\n")});
+      } else if (chatId && text.toLowerCase() === "/markets") {
+        if (!env.OTCHARTS_API_KEY) {
+          await telegram(env,"sendMessage",{chat_id:chatId,text:"Markets unavailable: OTCHARTS_API_KEY is not configured."});
+        } else {
+          const venues = await fetchOTCVenues(env.OTCHARTS_API_KEY);
+          const quotex = venues.venues?.find(v => v.id === "quotex");
+          if (!quotex?.open) await telegram(env,"sendMessage",{chat_id:chatId,text:"Markets unavailable: your OTCharts plan does not currently open the Quotex venue."});
+          else {
+            const catalogue = await fetchOTCSymbols(env.OTCHARTS_API_KEY,"quotex");
+            const open = catalogue.filter(s => s.symbol && s.open !== false).slice(0,35);
+            await telegram(env,"sendMessage",{chat_id:chatId,text:open.length
+              ? ["Open instruments available to this account (first "+open.length+"):",...open.map(s=>s.symbol+(s.name && s.name!==s.symbol ? " — "+s.name : "")),"Use /signal SYMBOL to request a scan. This is limited to your provider plan."].join("\n").slice(0,3900)
+              : "The provider returned no open instruments."});
+          }
+        }
+      } else if (chatId && text.toLowerCase() === "/stats") {
+        if (!env.DB) await telegram(env,"sendMessage",{chat_id:chatId,text:"Outcome statistics unavailable: D1 database binding is missing."});
+        else {
+          const stats = await getOutcomeSummary(env.DB);
+          await telegram(env,"sendMessage",{chat_id:chatId,text:[
+            "AstraTrade outcome tracking",
+            "Resolved: "+stats.resolved_total,
+            "Wins: "+stats.wins,
+            "Losses: "+stats.losses,
+            "Voids: "+stats.voids,
+            "Observed win rate: "+(stats.win_rate_percent===null ? "not available yet" : stats.win_rate_percent+"%"),
+            "Historical results are not a guarantee of future performance."
+          ].join("\n")});
+        }
+      } else if (chatId && text.toLowerCase().startsWith("/signal")) {
+        const requested = text.split(/\s+/)[1];
+        if (!requested) await telegram(env,"sendMessage",{chat_id:chatId,text:"Usage: /signal SYMBOL\nFirst use /markets to see instruments accessible to your OTCharts plan."});
+        else await scan(env,chatId,requested);
+      }
       const cb = update.callback_query;
       if (cb?.id && cb.data === "START_SCAN" && cb.message?.chat?.id) {
         await telegram(env,"answerCallbackQuery",{callback_query_id:cb.id,text:"Scanning accessible Quotex markets",show_alert:false});
