@@ -39,8 +39,19 @@ export async function fetchTwelveDataCandles(
   url.searchParams.set("timezone", "UTC");
   url.searchParams.set("apikey", apiKey);
   const response = await fetchImpl(url.toString(), { method: "GET", headers: { accept: "application/json" } });
-  if (!response.ok) throw new Error("Twelve Data HTTP " + response.status);
-  const body = await response.json() as TwelveDataResponse;
+  // Twelve Data now returns structured JSON for many non-2xx responses. Read it before
+  // throwing so symbol/permission/endpoint issues are distinguishable in Telegram logs.
+  let body: TwelveDataResponse;
+  try {
+    body = await response.json() as TwelveDataResponse;
+  } catch {
+    if (!response.ok) throw new Error("Twelve Data HTTP " + response.status + " (non-JSON response)");
+    throw new Error("Twelve Data returned invalid JSON");
+  }
+  if (!response.ok) {
+    const detail = String(body.message ?? body.code ?? body.status ?? "no provider detail").replace(/[\\r\\n]+/g," ").slice(0,180);
+    throw new Error("Twelve Data HTTP " + response.status + ": " + detail);
+  }
   if (body.status === "error" || !Array.isArray(body.values)) {
     throw new Error("Twelve Data response rejected: " + String(body.message ?? body.code ?? "missing values"));
   }
