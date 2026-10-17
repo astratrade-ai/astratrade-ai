@@ -136,7 +136,7 @@ async function scan(env: Env, chatId: number): Promise<void> {
       await telegram(env,"sendMessage",{chat_id:chatId,text:"SCAN STATUS: NO TRADE\\nCould not capture a valid entry price for outcome tracking."});
       return;
     }
-    await recordSignal(env.DB, {id:signalId,createdAt:new Date().toISOString(),symbol:best.symbol,direction:best.direction,timeframeSeconds:60,entryPrice,entryCandleTime:best.latest,strategyVersion:"ema-momentum-v1"});
+    await recordSignal(env.DB, {id:signalId,createdAt:new Date().toISOString(),symbol:best.symbol,direction:best.direction,timeframeSeconds:60,entryPrice,entryCandleTime:entryCandle.candles.at(-1)!.timestamp,strategyVersion:"ema-momentum-v1"});
     await telegram(env,"sendMessage",{chat_id:chatId,text:[
       "ASTRATRADE AI — PROVISIONAL SIGNAL",
       "Signal ID: "+signalId,
@@ -164,7 +164,7 @@ async function scan(env: Env, chatId: number): Promise<void> {
 }
 async function resolveDueSignals(env: Env): Promise<number> {
   if (!env.DB || !env.OTCHARTS_API_KEY) return 0;
-  const pending = await env.DB.prepare("SELECT id,symbol,direction,timeframe_seconds,entry_price,entry_candle_time FROM signals WHERE status='PENDING' AND entry_price IS NOT NULL AND entry_candle_time <= ? LIMIT 100")
+  const pending = await env.DB.prepare("SELECT id,symbol,direction,timeframe_seconds,entry_price,entry_candle_time FROM signals WHERE status='PENDING' AND entry_price IS NOT NULL AND (entry_candle_time + timeframe_seconds * 1000) <= ? LIMIT 100")
     .bind(Date.now() - 10000).all<{id:string;symbol:string;direction:Direction;timeframe_seconds:30|60|300;entry_price:number;entry_candle_time:number}>();
   let resolved = 0;
   for (const s of pending.results ?? []) {
