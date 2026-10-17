@@ -99,7 +99,7 @@ async function scan(env: Env, chatId: number): Promise<void> {
           states.push({tf,direction:a.direction,score:a.score,ok:a.ok,latest:a.latest});
         } catch (e) {
           const message = e instanceof Error ? e.message : "provider error";
-          checks[tf+"s"] = message.includes("HTTP 403") ? "PLAN_LIMIT" : message.includes("HTTP 400") ? "TIMEFRAME_UNAVAILABLE" : message.includes("HTTP 429") ? "QUOTA_LIMIT" : "PROVIDER_ERROR";
+          checks[tf+"s"] = message.includes("HTTP 402") ? "ACCOUNT_PLAN_BLOCKED" : message.includes("HTTP 401") ? "AUTH_FAILED" : message.includes("HTTP 403") ? "PLAN_LIMIT" : message.includes("HTTP 400") ? "TIMEFRAME_UNAVAILABLE" : message.includes("HTTP 429") ? "QUOTA_LIMIT" : "PROVIDER_ERROR";
           states.push({tf,direction:null,score:0,ok:false,latest:null});
         }
       }
