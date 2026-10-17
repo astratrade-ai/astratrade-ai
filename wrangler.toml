@@ -6,3 +6,11 @@ workers_dev = true
 [vars]
 APP_ENV = "production"
 # Secrets must be configured with Wrangler/Cloudflare secret storage, never here.
+
+[[d1_databases]]
+binding = "DB"
+database_name = "astratrade-outcomes"
+database_id = "8a459ab9-225b-49b7-a02e-57ee6c1aee78"
+
+[triggers]
+crons = ["* * * * *"]
