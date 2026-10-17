@@ -3,6 +3,7 @@ import { simpleFeatures } from "./analysis";
 import type { Candle } from "./quality";
 import { recordSignal, resolveSignal, getOutcomeSummary, type D1DatabaseLike } from "./storage";
 import { fetchOTCCandles, fetchOTCSymbols, fetchOTCUsage, fetchOTCVenues, type OTCSymbol } from "./otcharts";
+import { fetchTwelveDataCandles } from "./provider";
 
 interface Env {
   TELEGRAM_BOT_TOKEN?: string;
@@ -209,10 +210,52 @@ export default {
           "AstraTrade AI commands",
           "/start — show scan button",
           "/markets — list open instruments available from your OTCharts plan",
+          "/analysis EURUSD — research-only standard FX technical analysis via Twelve Data (not an OTC signal),
           "/signal SYMBOL — scan one exact available instrument, e.g. /signal EURUSD_otc",
           "/stats — show stored outcome statistics",
           "Signals are experimental, uncalibrated, and do not guarantee profit. Provider plan limits may block data."
         ].join("\n")});
+      } else if (chatId && text.toLowerCase().startsWith("/analysis")) {
+        const rawSymbol = text.split(/\\s+/)[1]?.trim().toUpperCase();
+        if (!rawSymbol) {
+          await telegram(env,"sendMessage",{chat_id:chatId,text:"Usage: /analysis EURUSD\\nResearch-only technical analysis using Twelve Data standard FX candles. This is not a Quotex OTC signal."});
+        } else if (!env.TWELVE_DATA_API_KEY) {
+          await telegram(env,"sendMessage",{chat_id:chatId,text:"Analysis unavailable: TWELVE_DATA_API_KEY is not configured on the Worker."});
+        } else {
+          const normalized = rawSymbol.includes("/") ? rawSymbol : /^[A-Z]{6}$/.test(rawSymbol) ? rawSymbol.slice(0,3)+"/"+rawSymbol.slice(3) : rawSymbol;
+          const specs = [{interval:"1min",label:"1m",ms:60000},{interval:"5min",label:"5m",ms:300000},{interval:"15min",label:"15m",ms:900000}] as const;
+          const reports: string[] = [];
+          const directions: Array<string|null> = [];
+          for (const spec of specs) {
+            try {
+              const data = await fetchTwelveDataCandles(normalized,spec.interval,env.TWELVE_DATA_API_KEY,80);
+              const q = inspectCandles(data.candles,spec.ms,Date.now(),spec.ms*4);
+              if (!q.ok) {
+                reports.push(spec.label+": DATA_REJECTED ("+q.issues.map(i=>i.code).join(",")+")");
+                directions.push(null);
+                continue;
+              }
+              const f = simpleFeatures(data.candles);
+              if (!f) { reports.push(spec.label+": INSUFFICIENT_DATA"); directions.push(null); continue; }
+              const dir = f.momentum>0 && f.emaFast>f.emaSlow ? "UP" : f.momentum<0 && f.emaFast<f.emaSlow ? "DOWN" : "MIXED";
+              directions.push(dir==="MIXED"?null:dir);
+              reports.push(spec.label+": "+dir+" | last close "+data.candles.at(-1)!.close+" | EMA trend "+(f.emaFast>f.emaSlow?"UP":f.emaFast<f.emaSlow?"DOWN":"FLAT")+" | candle age "+Math.max(0,Math.round((Date.now()-data.candles.at(-1)!.timestamp)/1000))+"s");
+            } catch (e) {
+              const m=e instanceof Error?e.message:"provider error";
+              reports.push(spec.label+": FEED_ERROR ("+m.slice(0,100)+")");
+              directions.push(null);
+            }
+          }
+          const aligned = directions.every(d=>d!==null) && directions.every(d=>d===directions[0]);
+          await telegram(env,"sendMessage",{chat_id:chatId,text:[
+            "ASTRATRADE AI — TWELVE DATA RESEARCH",
+            "Instrument: "+normalized+" (standard FX composite feed)",
+            ...reports,
+            "Multi-timeframe alignment: "+(aligned?"ALIGNED":"NOT ALIGNED / INCOMPLETE"),
+            "Decision: "+(aligned?"RESEARCH BIAS ONLY — "+directions[0]:"NO TRADE"),
+            "Important: Twelve Data standard FX prices are not Quotex OTC prices. This is not a broker-matched entry signal, does not guarantee outcomes, and is not calibrated for win probability."
+          ].join("\\n").slice(0,3900)});
+        }
       } else if (chatId && text.toLowerCase() === "/markets") {
         if (!env.OTCHARTS_API_KEY) {
           await telegram(env,"sendMessage",{chat_id:chatId,text:"Markets unavailable: OTCHARTS_API_KEY is not configured."});
