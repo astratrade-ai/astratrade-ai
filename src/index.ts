@@ -247,17 +247,27 @@ export default {
             }
           }
           const aligned = directions.every(d=>d!==null) && directions.every(d=>d===directions[0]);
-          const direction = aligned ? directions[0] : null;
-          const directionLabel = direction === "UP" ? "CALL / UP ⬆️" : direction === "DOWN" ? "PUT / DOWN ⬇️" : "NO TRADE";
+          // A direction is actionable for research display only when every timeframe's latest candle passes freshness checks.
+          const reportsFresh = reports.every(line => {
+            const m = line.match(/candle age (\d+)s/);
+            if (!m) return false;
+            const age = Number(m[1]);
+            const label = line.slice(0,3);
+            const maxAge = label === "1m:" ? 90 : label === "5m" ? 360 : label === "15m" ? 960 : 0;
+            return age <= maxAge;
+          });
+          const direction = aligned && reportsFresh ? directions[0] : null;
+          const directionLabel = direction === "UP" ? "CALL / UP ⬆️" : direction === "DOWN" ? "PUT / DOWN ⬇️" : "NO TRADE 🛑";
           await telegram(env,"sendMessage",{chat_id:chatId,text:[
             "📊 ASTRATRADE AI — SIMPLE ANALYSIS",
             "🧭 SET ASSET: "+normalized+" (STANDARD FX, NOT OTC)",
-            "⏱️ TIME SET: "+(direction ? "1 MINUTE — RESEARCH HORIZON" : "NOT SET — WAIT"),
+            "⏱️ TIME SET: "+(direction ? "1 MINUTE — RESEARCH HORIZON" : "WAIT — NO VALID ENTRY"),
             "🔗 FEED: Twelve Data composite FX",
             "🎯 DIRECTION: "+directionLabel,
             "🧪 TIMEFRAME CHECK: "+(aligned ? "1m + 5m + 15m ALIGNED" : "NOT ALIGNED / INCOMPLETE"),
+            "🕒 FRESHNESS CHECK: "+(reportsFresh ? "PASS" : "FAIL — one or more candles are stale or unavailable"),
             ...reports,
-            direction ? "⚠️ RESEARCH BIAS ONLY — not a confirmed broker entry signal." : "🛑 NO TRADE: wait for clean, aligned data.",
+            direction ? "⚠️ RESEARCH BIAS ONLY — not a confirmed broker entry signal." : "🛑 NO TRADE: wait for fresh, complete, aligned data.",
             "Twelve Data standard FX prices do not match Quotex OTC quotes by default. No win probability or profit is guaranteed. Do not treat this as a live OTC instruction."
           ].join("\n").slice(0,3900)});
         }
