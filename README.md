@@ -13,7 +13,11 @@ A Telegram-first market scanner and signal research service, separate from all o
 - Third-party prices are not assumed to match QxBroker/Quotex OTC quotes. Broker compatibility must be separately verified before OTC signals are enabled.
 
 ## Current stage
-Initial architecture and deterministic quality gates. Live market coverage, broker quote equivalence, calibrated 70% claims, and production Telegram delivery are NOT verified yet.
+- Source foundation committed: candle-quality checks, payout-aware gate, confidence interval helper, regime-degradation monitor, Twelve Data adapter, Telegram webhook, and tests.
+- Cloudflare Worker script `astratrade-ai` uploaded successfully, but the account has no `workers.dev` subdomain yet, so public endpoint verification is blocked.
+- No Worker secrets are configured yet. Telegram delivery and live market scans therefore are not operational.
+- Automated CI has been configured, but a passing workflow run has not been observed.
+- Live market coverage, broker quote equivalence, calibrated 70% claims, and production Telegram delivery are NOT verified.
 
 ## Setup
 1. Install Node.js 22+ and pnpm.
