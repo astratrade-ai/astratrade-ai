@@ -7,7 +7,7 @@ export interface Candle {
   volume?: number;
 }
 export interface QualityIssue {
-  code: "EMPTY"|"INVALID_TIMESTAMP"|"OUT_OF_ORDER"|"DUPLICATE"|"GAP"|"INVALID_OHLC"|"INVALID_PRICE"|"STALE";
+  code: "EMPTY"|"INVALID_TIMESTAMP"|"MISALIGNED_TIMESTAMP"|"OUT_OF_ORDER"|"DUPLICATE"|"GAP"|"INVALID_OHLC"|"INVALID_PRICE"|"STALE";
   detail: string;
 }
 export interface QualityReport {
@@ -24,6 +24,7 @@ export function inspectCandles(candles: Candle[], intervalMs: number, nowMs: num
   let previous: Candle|undefined;
   for (const c of candles) {
     if (!Number.isFinite(c.timestamp)||c.timestamp<=0) { issues.push({code:"INVALID_TIMESTAMP",detail:"Invalid candle timestamp."}); continue; }
+    if (Math.abs(c.timestamp % intervalMs) > 1000 && Math.abs(c.timestamp % intervalMs - intervalMs) > 1000) issues.push({code:"MISALIGNED_TIMESTAMP",detail:"Candle timestamp is not aligned to the expected interval."});
     if (![c.open,c.high,c.low,c.close].every(Number.isFinite)) { issues.push({code:"INVALID_PRICE",detail:"OHLC contains non-finite price."}); continue; }
     if ([c.open,c.high,c.low,c.close].some(p=>p<=0)) issues.push({code:"INVALID_PRICE",detail:"OHLC prices must be positive."});
     if (c.high<Math.max(c.open,c.close,c.low)||c.low>Math.min(c.open,c.close,c.high)) issues.push({code:"INVALID_OHLC",detail:"Impossible OHLC relationship."});
