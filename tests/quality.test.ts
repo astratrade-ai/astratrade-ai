@@ -3,7 +3,7 @@ import {inspectCandles} from "../src/quality";
 const c=(timestamp:number,open=1,high=1.2,low=0.9,close=1.1)=>({timestamp,open,high,low,close});
 describe("inspectCandles",()=>{
  it("accepts sorted fresh candles",()=>expect(inspectCandles([c(1000),c(2000)],1000,2500,2000).ok).toBe(true));
- it("rejects timestamps not aligned to the interval",()=>expect(inspectCandles([c(1500)],1000,1600,5000).issues.some(x=>x.code==="MISALIGNED_TIMESTAMP")).toBe(true));
+ it("rejects timestamps not aligned to the interval",()=>expect(inspectCandles([c(1500)],60000,1600,5000).issues.some(x=>x.code==="MISALIGNED_TIMESTAMP")).toBe(true));
  it("rejects missing intervals",()=>expect(inspectCandles([c(1000),c(4000)],1000,4500,5000).issues.some(x=>x.code==="GAP")).toBe(true));
  it("rejects duplicates",()=>expect(inspectCandles([c(1000),c(1000)],1000,1500,5000).issues.some(x=>x.code==="DUPLICATE")).toBe(true));
  it("rejects out-of-order candles",()=>expect(inspectCandles([c(2000),c(1000)],1000,2500,5000).issues.some(x=>x.code==="OUT_OF_ORDER")).toBe(true));
