@@ -78,11 +78,11 @@ async function scan(env: Env, chatId: number): Promise<void> {
       await telegram(env,"sendMessage",{chat_id:chatId,text:"SCAN STATUS: NO TRADE\nThe Quotex catalogue returned no currently open instruments."});
       return;
     }
-    const callsNeeded = symbols.length * 3;
+    const callsNeeded = symbols.length * 3 + 2;
     const remaining = usage.requests?.remaining;
     if (typeof remaining === "number" && remaining < callsNeeded) {
       await telegram(env,"sendMessage",{chat_id:chatId,text:
-        "SCAN STATUS: NO TRADE\nOTCharts key is responding, but the remaining free-plan quota is too low for a complete scan.\nRemaining requests: "+remaining+"\nNeeded for "+symbols.length+" instruments × 3 timeframes: "+callsNeeded+"\nNo partial or fabricated signal was issued."});
+        "SCAN STATUS: NO TRADE\nOTCharts key is responding, but the remaining free-plan quota is too low for a complete scan.\nRemaining requests: "+remaining+"\nEstimated needed including catalogue checks: "+callsNeeded+"\nNo partial or fabricated signal was issued."});
       return;
     }
     const tfList: TF[] = [30,60,300];
