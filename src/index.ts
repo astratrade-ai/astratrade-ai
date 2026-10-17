@@ -247,13 +247,18 @@ export default {
             }
           }
           const aligned = directions.every(d=>d!==null) && directions.every(d=>d===directions[0]);
+          const direction = aligned ? directions[0] : null;
+          const directionLabel = direction === "UP" ? "CALL / UP ⬆️" : direction === "DOWN" ? "PUT / DOWN ⬇️" : "NO TRADE";
           await telegram(env,"sendMessage",{chat_id:chatId,text:[
-            "ASTRATRADE AI — TWELVE DATA RESEARCH",
-            "Instrument: "+normalized+" (standard FX composite feed)",
+            "📊 ASTRATRADE AI — SIMPLE ANALYSIS",
+            "🧭 SET ASSET: "+normalized+" (STANDARD FX, NOT OTC)",
+            "⏱️ TIME SET: "+(direction ? "1 MINUTE — RESEARCH HORIZON" : "NOT SET — WAIT"),
+            "🔗 FEED: Twelve Data composite FX",
+            "🎯 DIRECTION: "+directionLabel,
+            "🧪 TIMEFRAME CHECK: "+(aligned ? "1m + 5m + 15m ALIGNED" : "NOT ALIGNED / INCOMPLETE"),
             ...reports,
-            "Multi-timeframe alignment: "+(aligned?"ALIGNED":"NOT ALIGNED / INCOMPLETE"),
-            "Decision: "+(aligned?"RESEARCH BIAS ONLY — "+directions[0]:"NO TRADE"),
-            "Important: Twelve Data standard FX prices are not Quotex OTC prices. This is not a broker-matched entry signal, does not guarantee outcomes, and is not calibrated for win probability."
+            direction ? "⚠️ RESEARCH BIAS ONLY — not a confirmed broker entry signal." : "🛑 NO TRADE: wait for clean, aligned data.",
+            "Twelve Data standard FX prices do not match Quotex OTC quotes by default. No win probability or profit is guaranteed. Do not treat this as a live OTC instruction."
           ].join("\n").slice(0,3900)});
         }
       } else if (chatId && text.toLowerCase() === "/markets") {
