@@ -40,6 +40,20 @@ describe("signal outcome storage primitives", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0].sql).toContain("status='PENDING'");
   });
+
+  it("records a RESOLVED event after a successful outcome update", async () => {
+    const {db,calls}=mockDb({changes:1});
+    await expect(resolveSignal(db,"sig-2","WIN",1.234,"test candle close")).resolves.toBe(true);
+    expect(calls).toHaveLength(2);
+    expect(calls[0].sql).toContain("UPDATE signals");
+    expect(calls[1].sql).toContain("INSERT INTO signal_events");
+    expect(calls[1].values).toContain("RESOLVED");
+  });
+  it("does not add a second event when the signal was already resolved", async () => {
+    const {db,calls}=mockDb({changes:0});
+    await expect(resolveSignal(db,"sig-2","WIN",1.234,"test candle close")).resolves.toBe(false);
+    expect(calls).toHaveLength(1);
+  });
   it("returns persisted summary", async () => {
     const summary={resolved_total:10,wins:6,losses:4,voids:0,win_rate_percent:60};
     const {db}=mockDb({summary});
