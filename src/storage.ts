@@ -54,5 +54,13 @@ export async function resolveSignal(db: D1DatabaseLike, id: string, status: Excl
 }
 export async function getOutcomeSummary(db: D1DatabaseLike): Promise<OutcomeSummary> {
   const row = await db.prepare("SELECT resolved_total,wins,losses,voids,win_rate_percent FROM signal_outcome_summary").first<OutcomeSummary>();
-  return row ?? {resolved_total:0,wins:0,losses:0,voids:0,win_rate_percent:null};
+  if (!row) return {resolved_total:0,wins:0,losses:0,voids:0,win_rate_percent:null};
+  // SQL SUM() returns NULL for an empty result set; present zero counts to Telegram clients.
+  return {
+    resolved_total: row.resolved_total ?? 0,
+    wins: row.wins ?? 0,
+    losses: row.losses ?? 0,
+    voids: row.voids ?? 0,
+    win_rate_percent: row.win_rate_percent ?? null
+  };
 }
