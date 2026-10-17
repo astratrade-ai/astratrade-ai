@@ -29,11 +29,26 @@ async function telegram(env: Env, method: string, payload: Record<string, unknow
   });
   if (!r.ok) throw new Error("Telegram API returned HTTP " + r.status);
 }
+async function setMonitoring(env: Env, chatId: number, active: boolean): Promise<void> {
+  if (!env.DB) throw new Error("Database not configured");
+  const result = active
+    ? await env.DB.prepare("INSERT INTO monitor_subscribers (chat_id,active,created_at) VALUES (?,1,?) ON CONFLICT(chat_id) DO UPDATE SET active=1").bind(String(chatId),new Date().toISOString()).run()
+    : await env.DB.prepare("UPDATE monitor_subscribers SET active=0 WHERE chat_id=?").bind(String(chatId)).run();
+  if (!result.success) throw new Error("Could not update monitoring state");
+}
+async function activeMonitors(env: Env): Promise<number[]> {
+  if (!env.DB) return [];
+  const result = await env.DB.prepare("SELECT chat_id FROM monitor_subscribers WHERE active=1 LIMIT 25").all<{chat_id:string}>();
+  return (result.results ?? []).map(row => Number(row.chat_id)).filter(id => Number.isSafeInteger(id));
+}
 async function start(env: Env, chatId: number): Promise<void> {
   await telegram(env, "sendMessage", {
     chat_id: chatId,
-    text: "AstraTrade AI\nOTCharts Quotex data scan. Free-plan limits apply. Signals are experimental and uncalibrated; no profit is guaranteed.",
-    reply_markup: { inline_keyboard: [[{ text: "START", callback_data: "START_SCAN" }]] }
+    text: "✨ ASTRATRADE AI — LIVE MONITOR\nTap START to enable automatic market scans. The bot selects an accessible market and sends a direction only when checks pass. Send STOP to pause. Signals are experimental; no profit is guaranteed.",
+    reply_markup: { inline_keyboard: [
+      [{ text: "✨ ▶ START LIVE MONITOR", style: "success", callback_data: "START_MONITOR" }],
+      [{ text: "⏸ STOP MONITOR", style: "danger", callback_data: "STOP_MONITOR" }]
+    ] }
   });
 }
 function chooseSymbols(symbols: OTCSymbol[]): OTCSymbol[] {
@@ -61,7 +76,7 @@ function assess(candles: Candle[], tf: TF, now: number, gaps?: {runs?:number;mis
   }
   return {ok:true,direction,score,issue:"OK",latest:quality.latestTimestamp,count:candles.length};
 }
-async function scan(env: Env, chatId: number, requestedSymbol?: string): Promise<void> {
+async function scan(env: Env, chatId: number, requestedSymbol?: string, silentNoTrade = false): Promise<void> {
   const key = env.OTCHARTS_API_KEY;
   if (!key) {
     await telegram(env,"sendMessage",{chat_id:chatId,text:"SCAN STATUS: NO TRADE\nOTCHARTS_API_KEY is not available to this deployed Worker. Check the Worker Secret and deploy the latest code."});
@@ -186,6 +201,9 @@ async function resolveDueSignals(env: Env): Promise<number> {
 export default {
   async scheduled(_controller: ScheduledController, env: Env, _ctx: ExecutionContext): Promise<void> {
     await resolveDueSignals(env);
+    for (const chatId of await activeMonitors(env)) {
+      try { await scan(env,chatId,undefined,true); } catch { /* isolate subscribers */ }
+    }
   },
   async fetch(request:Request,env:Env):Promise<Response> {
     const url = new URL(request.url);
@@ -205,6 +223,14 @@ export default {
       const chatId = message?.chat?.id;
       const text = message?.text?.trim() ?? "";
       if (chatId && text.toLowerCase() === "/start") await start(env,chatId);
+      else if (chatId && ["start","start monitor","start scan","▶ start"].includes(text.toLowerCase())) {
+        await setMonitoring(env,chatId,true);
+        await telegram(env,"sendMessage",{chat_id:chatId,text:"✨ LIVE MONITOR ACTIVATED\nAutomatic market scans will run every minute. Signals are sent only when data-quality and direction checks pass. Send STOP to pause.",reply_markup:{inline_keyboard:[[{text:"⏸ STOP MONITOR",style:"danger",callback_data:"STOP_MONITOR"}]]}});
+        await scan(env,chatId);
+      } else if (chatId && ["stop","stop monitor","pause"].includes(text.toLowerCase())) {
+        await setMonitoring(env,chatId,false);
+        await telegram(env,"sendMessage",{chat_id:chatId,text:"⏸ Live monitoring stopped. Send START to resume."});
+      }
       else if (chatId && (text.toLowerCase() === "/help" || text.toLowerCase() === "/commands")) {
         await telegram(env,"sendMessage",{chat_id:chatId,text:[
           "AstraTrade AI commands",
@@ -306,9 +332,17 @@ export default {
         else await scan(env,chatId,requested);
       }
       const cb = update.callback_query;
-      if (cb?.id && cb.data === "START_SCAN" && cb.message?.chat?.id) {
-        await telegram(env,"answerCallbackQuery",{callback_query_id:cb.id,text:"Scanning accessible Quotex markets",show_alert:false});
-        await scan(env,cb.message.chat.id);
+      if (cb?.id && cb.data === "START_MONITOR" && cb.message?.chat?.id) {
+        const id=cb.message.chat.id;
+        await telegram(env,"answerCallbackQuery",{callback_query_id:cb.id,text:"Live monitoring enabled",show_alert:false});
+        await setMonitoring(env,id,true);
+        await telegram(env,"sendMessage",{chat_id:id,text:"✨ LIVE MONITOR ACTIVATED\nAutomatic scans will run every minute. Signals are sent only when data-quality and direction checks pass. Send STOP to pause.",reply_markup:{inline_keyboard:[[{text:"⏸ STOP MONITOR",style:"danger",callback_data:"STOP_MONITOR"}]]}});
+        await scan(env,id);
+      } else if (cb?.id && cb.data === "STOP_MONITOR" && cb.message?.chat?.id) {
+        const id=cb.message.chat.id;
+        await telegram(env,"answerCallbackQuery",{callback_query_id:cb.id,text:"Monitoring stopped",show_alert:false});
+        await setMonitoring(env,id,false);
+        await telegram(env,"sendMessage",{chat_id:id,text:"⏸ LIVE MONITOR STOPPED. Send START to resume."});
       }
       return json({ok:true});
     } catch (e) {
