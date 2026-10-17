@@ -1,6 +1,7 @@
 import { inspectCandles } from "./quality";
 import { simpleFeatures } from "./analysis";
 import type { Candle } from "./quality";
+import { recordSignal, resolveSignal, getOutcomeSummary, type D1DatabaseLike } from "./storage";
 import { fetchOTCCandles, fetchOTCSymbols, fetchOTCUsage, fetchOTCVenues, type OTCSymbol } from "./otcharts";
 
 interface Env {
@@ -9,6 +10,7 @@ interface Env {
   OTCHARTS_API_KEY?: string;
   TWELVE_DATA_API_KEY?: string;
   APP_ENV?: string;
+  DB?: D1DatabaseLike;
 }
 interface TelegramUpdate {
   message?: { chat: { id: number }; text?: string };
@@ -123,10 +125,24 @@ async function scan(env: Env, chatId: number): Promise<void> {
       return;
     }
     const ageSeconds = Math.max(0,Math.round((Date.now()-best.latest)/1000));
+    const entryCandle = await fetchOTCCandles(best.symbol, 60, key, 5).catch(() => null);
+    const entryPrice = entryCandle?.candles.at(-1)?.close;
+    const signalId = crypto.randomUUID();
+    if (!env.DB) {
+      await telegram(env,"sendMessage",{chat_id:chatId,text:"SCAN STATUS: NO TRADE\\nSignal storage is not configured (DB binding missing); refusing to issue an unlogged signal."});
+      return;
+    }
+    if (!entryCandle || typeof entryPrice !== "number" || !Number.isFinite(entryPrice)) {
+      await telegram(env,"sendMessage",{chat_id:chatId,text:"SCAN STATUS: NO TRADE\\nCould not capture a valid entry price for outcome tracking."});
+      return;
+    }
+    await recordSignal(env.DB, {id:signalId,createdAt:new Date().toISOString(),symbol:best.symbol,direction:best.direction,timeframeSeconds:60,entryPrice,entryCandleTime:best.latest,strategyVersion:"ema-momentum-v1"});
     await telegram(env,"sendMessage",{chat_id:chatId,text:[
       "ASTRATRADE AI — PROVISIONAL SIGNAL",
+      "Signal ID: "+signalId,
       "Market: "+best.name+" ("+best.symbol+")",
       "Direction: "+best.direction,
+      "Outcome tracking: enabled (60-second close; provisional)",
       "Timeframe agreement: 30s + 1m + 5m",
       "Setup rank score: "+best.score.toFixed(2)+" (indicator score, NOT win probability)",
       "Newest candle age: "+ageSeconds+"s",
@@ -140,16 +156,42 @@ async function scan(env: Env, chatId: number): Promise<void> {
     const safe = message.replace(/otc_live_[A-Za-z0-9_-]+/g,"[redacted]").slice(0,500);
     let explanation = "OTCharts request failed: "+safe;
     if (message.includes("HTTP 401")) explanation = "OTCharts rejected the API key (401). Confirm the key is active and the OTCharts account email is confirmed.";
+    else if (message.includes("HTTP 402")) explanation = "OTCharts returned HTTP 402: the account plan is blocked or unsupported. No signal issued.";
     else if (message.includes("HTTP 403")) explanation = "OTCharts refused the requested Quotex book/instrument under the current free plan (403).";
     else if (message.includes("HTTP 429")) explanation = "OTCharts free-plan request allowance is exhausted (429).";
     await telegram(env,"sendMessage",{chat_id:chatId,text:"SCAN STATUS: NO TRADE\n"+explanation+"\nNo signal was fabricated."});
   }
 }
+async function resolveDueSignals(env: Env): Promise<number> {
+  if (!env.DB || !env.OTCHARTS_API_KEY) return 0;
+  const pending = await env.DB.prepare("SELECT id,symbol,direction,timeframe_seconds,entry_price,entry_candle_time FROM signals WHERE status='PENDING' AND entry_price IS NOT NULL AND entry_candle_time <= ? LIMIT 100")
+    .bind(Date.now() - 10000).all<{id:string;symbol:string;direction:Direction;timeframe_seconds:30|60|300;entry_price:number;entry_candle_time:number}>();
+  let resolved = 0;
+  for (const s of pending.results ?? []) {
+    try {
+      const candles = await fetchOTCCandles(s.symbol,s.timeframe_seconds,env.OTCHARTS_API_KEY,10);
+      const targetTime = s.entry_candle_time + s.timeframe_seconds * 1000;
+      const exit = candles.candles.find(c => c.timestamp >= targetTime);
+      if (!exit || !Number.isFinite(exit.close)) continue;
+      const status = exit.close === s.entry_price ? "VOID" : ((s.direction === "UP" && exit.close > s.entry_price) || (s.direction === "DOWN" && exit.close < s.entry_price)) ? "WIN" : "LOSS";
+      const ok = await resolveSignal(env.DB,s.id,status,exit.close,"OTCharts candle close at/after expiry");
+      if (ok) resolved++;
+    } catch { /* provider errors leave the signal pending; never guess an outcome */ }
+  }
+  return resolved;
+}
 export default {
+  async scheduled(_controller: ScheduledController, env: Env, _ctx: ExecutionContext): Promise<void> {
+    await resolveDueSignals(env);
+  },
   async fetch(request:Request,env:Env):Promise<Response> {
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/health") {
-      return json({ok:true,service:"astratrade-ai",environment:env.APP_ENV??"unset",otchartsConfigured:Boolean(env.OTCHARTS_API_KEY),signalMode:"provisional-uncalibrated",liveStreamAvailable:false});
+      return json({ok:true,service:"astratrade-ai",environment:env.APP_ENV??"unset",otchartsConfigured:Boolean(env.OTCHARTS_API_KEY),databaseConfigured:Boolean(env.DB),signalMode:"provisional-uncalibrated",liveStreamAvailable:false});
+    }
+    if (request.method === "GET" && url.pathname === "/stats") {
+      if (!env.DB) return json({error:"Database not configured"},503);
+      try { return json(await getOutcomeSummary(env.DB)); } catch { return json({error:"Storage query failed"},500); }
     }
     if (request.method !== "POST" || url.pathname !== "/telegram/webhook") return json({error:"Not found"},404);
     if (!env.TELEGRAM_WEBHOOK_SECRET || request.headers.get("X-Telegram-Bot-Api-Secret-Token") !== env.TELEGRAM_WEBHOOK_SECRET) return json({error:"Unauthorized"},401);
