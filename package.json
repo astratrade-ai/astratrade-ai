@@ -3,9 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "scripts": {"dev":"wrangler dev","deploy":"wrangler deploy","typecheck":"tsc --noEmit","test":"vitest run","test:watch":"vitest"},
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20261015.0",
+    "@cloudflare/workers-types": "^5.20261016.1",
     "typescript": "^5.9.3",
     "vitest": "^3.2.4",
     "wrangler": "^4.43.0"
