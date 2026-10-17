@@ -210,13 +210,13 @@ export default {
           "AstraTrade AI commands",
           "/start — show scan button",
           "/markets — list open instruments available from your OTCharts plan",
-          "/analysis EURUSD — research-only standard FX technical analysis via Twelve Data (not an OTC signal),
+          "/analysis EURUSD — research-only standard FX technical analysis via Twelve Data (not an OTC signal)",
           "/signal SYMBOL — scan one exact available instrument, e.g. /signal EURUSD_otc",
           "/stats — show stored outcome statistics",
           "Signals are experimental, uncalibrated, and do not guarantee profit. Provider plan limits may block data."
         ].join("\n")});
       } else if (chatId && text.toLowerCase().startsWith("/analysis")) {
-        const rawSymbol = text.split(/\\s+/)[1]?.trim().toUpperCase();
+        const rawSymbol = text.split(/\s+/)[1]?.trim().toUpperCase();
         if (!rawSymbol) {
           await telegram(env,"sendMessage",{chat_id:chatId,text:"Usage: /analysis EURUSD\nResearch-only technical analysis using Twelve Data standard FX candles. This is not a Quotex OTC signal."});
         } else if (!env.TWELVE_DATA_API_KEY) {
