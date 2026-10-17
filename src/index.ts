@@ -87,7 +87,7 @@ async function scan(env: Env, chatId: number, requestedSymbol?: string, silentNo
     const venues = await fetchOTCVenues(key);
     const quotex = venues.venues?.find(v => v.id === "quotex");
     if (!quotex?.open) {
-      await telegram(env,"sendMessage",{chat_id:chatId,text:"SCAN STATUS: NO TRADE\nOTCharts API key is valid, but your current plan does not open the Quotex venue. Check the /v1/venues access for your account."});
+      if (!silentNoTrade) await telegram(env,"sendMessage",{chat_id:chatId,text:"SCAN STATUS: NO TRADE\nOTCharts API key is valid, but your current plan does not open the Quotex venue. Check the /v1/venues access for your account."});
       return;
     }
     const catalogue = await fetchOTCSymbols(key,"quotex");
@@ -95,13 +95,13 @@ async function scan(env: Env, chatId: number, requestedSymbol?: string, silentNo
       ? catalogue.filter(s => s.open !== false && (s.symbol.toLowerCase() === requestedSymbol.toLowerCase() || s.symbol.toLowerCase() === requestedSymbol.toLowerCase() + "_otc")).slice(0, 1)
       : chooseSymbols(catalogue);
     if (!symbols.length) {
-      await telegram(env,"sendMessage",{chat_id:chatId,text:"SCAN STATUS: NO TRADE\nThe Quotex catalogue returned no currently open instruments."});
+      if (!silentNoTrade) await telegram(env,"sendMessage",{chat_id:chatId,text:"SCAN STATUS: NO TRADE\nThe Quotex catalogue returned no currently open instruments."});
       return;
     }
     const callsNeeded = symbols.length * 3 + 4;
     const remaining = usage.requests?.remaining;
     if (typeof remaining === "number" && remaining < callsNeeded) {
-      await telegram(env,"sendMessage",{chat_id:chatId,text:
+      if (!silentNoTrade) await telegram(env,"sendMessage",{chat_id:chatId,text:
         "SCAN STATUS: NO TRADE\nOTCharts key is responding, but the remaining free-plan quota is too low for a complete scan.\nRemaining requests: "+remaining+"\nEstimated needed including catalogue checks: "+callsNeeded+"\nNo partial or fabricated signal was issued."});
       return;
     }
@@ -132,7 +132,7 @@ async function scan(env: Env, chatId: number, requestedSymbol?: string, silentNo
     evaluated.sort((a,b)=>b.score-a.score);
     const best = evaluated[0];
     if (!best) {
-      await telegram(env,"sendMessage",{chat_id:chatId,text:[
+      if (!silentNoTrade) await telegram(env,"sendMessage",{chat_id:chatId,text:[
         "SCAN STATUS: NO TRADE",
         "OTCharts connection responded, but no instrument passed data-quality and 30s/1m/5m direction agreement.",
         "Quotex instruments checked: "+symbols.length+" (free plan limits apply; this is not the full book).",
@@ -145,6 +145,11 @@ async function scan(env: Env, chatId: number, requestedSymbol?: string, silentNo
     const ageSeconds = Math.max(0,Math.round((Date.now()-best.latest)/1000));
     const entryCandle = await fetchOTCCandles(best.symbol, 60, key, 5).catch(() => null);
     const entryPrice = entryCandle?.candles.at(-1)?.close;
+    if (silentNoTrade && env.DB) {
+      const recent = await env.DB.prepare("SELECT COUNT(*) AS n FROM signals WHERE symbol=? AND direction=? AND created_at >= ?")
+        .bind(best.symbol,best.direction,new Date(Date.now()-5*60*1000).toISOString()).first<{n:number}>();
+      if ((recent?.n ?? 0) > 0) return;
+    }
     const signalId = crypto.randomUUID();
     if (!env.DB) {
       await telegram(env,"sendMessage",{chat_id:chatId,text:"SCAN STATUS: NO TRADE\nSignal storage is not configured (DB binding missing); refusing to issue an unlogged signal."});
@@ -156,20 +161,18 @@ async function scan(env: Env, chatId: number, requestedSymbol?: string, silentNo
     }
     await recordSignal(env.DB, {id:signalId,createdAt:new Date().toISOString(),symbol:best.symbol,direction:best.direction,timeframeSeconds:60,entryPrice,entryCandleTime:entryCandle.candles.at(-1)!.timestamp,strategyVersion:"ema-momentum-v1"});
     await telegram(env,"sendMessage",{chat_id:chatId,text:[
-      "ASTRATRADE AI — PROVISIONAL SIGNAL",
+      "✨ ASTRATRADE AI — SIGNAL",
+      "🏷️ SET ASSET: "+best.name+" ("+best.symbol+")",
+      "⏱️ TIME SET: 1 MINUTE",
+      "🎯 DIRECTION: "+(best.direction==="UP"?"CALL / UP ⬆️":"PUT / DOWN ⬇️"),
+      "🔎 MARKET SCAN: "+symbols.length+" accessible instruments",
+      "🕒 NEWEST CANDLE AGE: "+ageSeconds+"s",
+      "🧪 CHECKS: 30s + 1m + 5m aligned",
       "Signal ID: "+signalId,
-      "Market: "+best.name+" ("+best.symbol+")",
-      "Direction: "+best.direction,
-      "Outcome tracking: enabled (60-second close; provisional)",
-      "Timeframe agreement: 30s + 1m + 5m",
-      "Setup rank score: "+best.score.toFixed(2)+" (indicator score, NOT win probability)",
-      "Newest candle age: "+ageSeconds+"s",
-      "Markets checked: "+symbols.length+" accessible/open instruments (free-plan scope; not all Quotex markets)",
-      "API quota remaining before scan: "+(remaining===undefined?"not reported":remaining),
-      "Evidence: "+Object.entries(best.checks).map(([tf,status])=>tf+" "+status).join("; "),
-      "Important: experimental, not calibrated. Verify the current Quotex quote and payout; place trades manually only if you independently accept the risk."
+      "⚠️ Experimental, uncalibrated; not a guaranteed result. Verify the live Quotex quote and payout manually."
     ].join("\n")});
   } catch (e) {
+    if (silentNoTrade) return;
     const message = e instanceof Error ? e.message : "unknown provider error";
     const safe = message.replace(/otc_live_[A-Za-z0-9_-]+/g,"[redacted]").slice(0,500);
     let explanation = "OTCharts request failed: "+safe;
