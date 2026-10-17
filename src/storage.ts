@@ -21,6 +21,7 @@ export interface D1Statement {
   bind(...values: (string | number | null)[]): D1Statement;
   run<T = unknown>(): Promise<{ success: boolean; results?: T[]; meta?: { changes?: number } }>;
   first<T = unknown>(): Promise<T | null>;
+  all<T = unknown>(): Promise<{ success: boolean; results?: T[] }>;
 }
 export interface D1DatabaseLike {
   prepare(query: string): D1Statement;
