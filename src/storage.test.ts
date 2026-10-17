@@ -13,7 +13,8 @@ function mockDb(opts: { changes?: number; summary?: unknown; fail?: boolean } = 
           if (opts.fail) return {success:false};
           return {success:true,meta:{changes:opts.changes ?? 1}};
         },
-        async first<T>() { calls.push({sql,values}); return (opts.summary ?? null) as T | null; }
+        async first<T>() { calls.push({sql,values}); return (opts.summary ?? null) as T | null; },
+        async all<T>() { calls.push({sql,values}); return {success:true,results:[] as T[]}; }
       };
       return stmt;
     },
