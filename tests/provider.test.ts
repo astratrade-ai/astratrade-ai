@@ -20,6 +20,13 @@ describe("Twelve Data adapter", () => {
     await expect(fetchTwelveDataCandles("EUR/USD", "1min", "")).rejects.toThrow("API key");
     await expect(fetchTwelveDataCandles("EUR/USD", "2min", "x")).rejects.toThrow("interval");
   });
+  it("includes Twelve Data's structured HTTP 404 detail for diagnosis", async () => {
+    const mockFetch: typeof fetch = async () => new Response(JSON.stringify({
+      status: "error", code: 404, message: "Symbol not found: EUR/USD"
+    }), { status: 404, headers: { "content-type": "application/json" } });
+    await expect(fetchTwelveDataCandles("EUR/USD", "1min", "x", 30, mockFetch))
+      .rejects.toThrow("Twelve Data HTTP 404: Symbol not found: EUR/USD");
+  });
   it("rejects provider errors rather than inventing candles", async () => {
     const mockFetch: typeof fetch = async () => new Response(JSON.stringify({ status: "error", message: "API credits exhausted" }), { status: 200 });
     await expect(fetchTwelveDataCandles("EUR/USD", "1min", "x", 30, mockFetch)).rejects.toThrow("credits exhausted");
